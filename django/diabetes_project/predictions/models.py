@@ -46,7 +46,7 @@ class PredictionHistory(models.Model):
     bmi = models.FloatField()
     diabetes_pedigree_function = models.FloatField()
     age = models.IntegerField()
-    prediction = models.CharField(max_length=10)  # "Diabetic" / "Not Diabetic"
+    prediction = models.CharField(max_length=50)  # Увеличиваем размер поля
     probability = models.FloatField()
     created_at = models.DateTimeField(auto_now_add=True)  # Дата создания записи
 

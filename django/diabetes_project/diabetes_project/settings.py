@@ -111,8 +111,12 @@ WSGI_APPLICATION = 'diabetes_project.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'diabetes_db',
+        'USER': 'postgres',
+        'PASSWORD': '123',
+        'HOST': 'localhost',
+        'PORT': '5432',
     }
 }
 
@@ -165,4 +169,7 @@ EMAIL_USE_SSL = True
 EMAIL_PORT = 465
 EMAIL_HOST_USER = "muafikd@gmail.com"  # Твоя почта
 EMAIL_HOST_PASSWORD = "kcifdvbeqerepbml"  # 16-значный пароль
+
+# Настройка порта по умолчанию
+DEFAULT_PORT = '3030'
 

@@ -23,6 +23,7 @@ from rest_framework.permissions import IsAuthenticated
 from reportlab.lib import colors
 import io
 from reportlab.lib.utils import ImageReader
+from rest_framework.permissions import AllowAny
 
 
 from rest_framework import status
@@ -48,7 +49,13 @@ from .serializers import (
 
 # Загружаем модель и scaler
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "models", "diabetes_model.pkl")
-model, scaler = joblib.load(MODEL_PATH)
+try:
+    print("Загрузка модели и scaler...")
+    model, scaler = joblib.load(MODEL_PATH)
+    print("Модель и scaler успешно загружены")
+except Exception as e:
+    print("Ошибка при загрузке модели:", str(e))
+    raise
 
 #Функция предсказания
 class PredictionView(APIView):
@@ -77,52 +84,77 @@ class PredictionView(APIView):
         Предсказание диабета и сохранение результата (если пользователь аутентифицирован).
         """
         try:
+            print("Начало обработки запроса")
             data = json.loads(request.body)
-            print(data, "Дата")
-            print(data, "Дата")
+            print("Полученные данные:", data)
+            
             input_data = list(data.values())
-            print(input_data, "Введенные данные")
+            print("Преобразованные данные:", input_data)
 
             if len(input_data) != 8:
+                print("Ошибка: неверное количество параметров")
                 return Response({"error": "Нужно передать 8 числовых значений."}, status=status.HTTP_400_BAD_REQUEST)
 
             # Преобразуем данные и масштабируем
-            input_array = np.array(input_data).reshape(1, -1)
-            input_array = scaler.transform(input_array)
+            try:
+                input_array = np.array(input_data, dtype=float).reshape(1, -1)
+                print("Массив после преобразования:", input_array)
+                
+                input_array = scaler.transform(input_array)
+                print("Массив после масштабирования:", input_array)
+            except Exception as e:
+                print("Ошибка при обработке данных:", str(e))
+                return Response({"error": f"Ошибка при обработке данных: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
 
             # Делаем предсказание
-            prediction = model.predict(input_array)[0]
-            probability = model.predict_proba(input_array)[0][1] * 100
+            try:
+                prediction = model.predict(input_array)[0]
+                probability = model.predict_proba(input_array)[0][1] * 100
+                print("Результат предсказания:", prediction)
+                print("Вероятность:", probability)
+            except Exception as e:
+                print("Ошибка при предсказании:", str(e))
+                return Response({"error": f"Ошибка при предсказании: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
             # Определяем результат
             result = "Есть риск диабета" if prediction == 1 else "Маленький риск диабета"
-            print("Результат:", result)
+            print("Финальный результат:", result)
+            
             response_data = {
                 "prediction": result,
                 "probability": probability
             }
-            print(f"Authenticated: {request.user.is_authenticated}, User: {request.user}")
+            print("Данные для ответа:", response_data)
 
             # Если пользователь аутентифицирован – сохраняем результат
             if request.user.is_authenticated:
-                PredictionHistory.objects.create(
-                    user=request.user,
-                    pregnancies=input_data[0],
-                    glucose=input_data[1],
-                    blood_pressure=input_data[2],
-                    skin_thickness=input_data[3],
-                    insulin=input_data[4],
-                    bmi=input_data[5],
-                    diabetes_pedigree_function=input_data[6],
-                    age=input_data[7],
-                    prediction=result,
-                    probability=probability
-                )
-                response_data["message"] = "Результат сохранен в вашем профиле."
+                try:
+                    PredictionHistory.objects.create(
+                        user=request.user,
+                        pregnancies=input_data[0],
+                        glucose=input_data[1],
+                        blood_pressure=input_data[2],
+                        skin_thickness=input_data[3],
+                        insulin=input_data[4],
+                        bmi=input_data[5],
+                        diabetes_pedigree_function=input_data[6],
+                        age=input_data[7],
+                        prediction=result,
+                        probability=probability
+                    )
+                    response_data["message"] = "Результат сохранен в вашем профиле."
+                    print("Результат сохранен в базе данных")
+                except Exception as e:
+                    print("Ошибка при сохранении в базу данных:", str(e))
+                    # Не возвращаем ошибку, так как основная функциональность уже выполнена
 
             return Response(response_data, status=status.HTTP_200_OK)
 
+        except json.JSONDecodeError as e:
+            print("Ошибка декодирования JSON:", str(e))
+            return Response({"error": "Неверный формат JSON"}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
+            print("Неожиданная ошибка:", str(e))
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def delete(self, request, prediction_id=None):
@@ -170,8 +202,7 @@ class DownloadPredictionPDFView(APIView):
         probabilities = []
 
         for prediction in predictions:
-            result = "Есть риск диабета" if prediction.prediction == 1 else "Маленький риск диабета"
-            text = f"{prediction.created_at.strftime('%Y-%m-%d %H:%M')} | {result} ({prediction.probability:.2f}%)"
+            text = f"{prediction.created_at.strftime('%Y-%m-%d %H:%M')} | {prediction.prediction} ({prediction.probability:.2f}%)"
             pdf.drawString(100, y_position, text)
 
             # Сбор данных для графика
@@ -184,16 +215,10 @@ class DownloadPredictionPDFView(APIView):
                 pdf.setFont("DejaVuSans", 12)
                 y_position = 750
 
-        # === ВАЖНО ===
-        # Перед использованием matplotlib отключаем GUI backend
-        # matplotlib.use('Agg') <- я уже добавил это вверху
-
-        dates.append(prediction.created_at.strftime('%Y-%m-%d %H:%M'))
-        probabilities.append(prediction.probability * 100)
         # Рисование графика
         plt.figure(figsize=(8, 3))
         plt.plot(dates, probabilities, marker='o', linestyle='-', color='blue')
-        plt.xlabel('Дата и время')
+        plt.xlabel('Дата')
         plt.ylabel('Риск (%)')
         plt.title('Изменение риска диабета со временем')
         plt.xticks(rotation=45)
@@ -213,7 +238,7 @@ class DownloadPredictionPDFView(APIView):
 
         # Завершаем PDF
         pdf.save()
-        buffer.seek(0)  # ОЧЕНЬ ВАЖНО: отматываем PDF буфер перед отправкой
+        buffer.seek(0)
 
         response = HttpResponse(buffer, content_type="application/pdf")
         response["Content-Disposition"] = 'attachment; filename="prediction_history.pdf"'
@@ -302,7 +327,7 @@ class ProfileView(APIView):
 #Отправка кода на почту для сброса
 class PasswordResetRequestView(APIView):
     """Генерация кода и отправка на почту"""
-
+    permission_classes = [AllowAny]
     def post(self, request):
         serializer = PasswordResetRequestSerializer(data=request.data)
         if serializer.is_valid():
@@ -331,7 +356,7 @@ class PasswordResetRequestView(APIView):
 #Подтверждение кода и смена пароля
 class PasswordResetConfirmView(APIView):
     """Подтверждение кода и смена пароля"""
-
+    permission_classes = [AllowAny]
     def post(self, request):
         serializer = PasswordResetConfirmSerializer(data=request.data)
         if serializer.is_valid():
